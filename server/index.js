@@ -6,9 +6,6 @@ import { createClient } from '@supabase/supabase-js';
 dotenv.config({ path: '.env.local' });
 
 const app = express();
-import path from 'path';
-import { fileURLToPath } from 'url';
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 
 // ── Supabase ───────────────────────────────────────────────────────────────
@@ -393,6 +390,36 @@ app.post('/api/puzzle/submit', async (req, res) => {
 });
 
 
+// POST /api/puzzle/check-answer
+// Checks a single answer server-side, returns correct + the right answer
+app.post('/api/puzzle/check-answer', async (req, res) => {
+  try {
+    const { questionId, userAnswer } = req.body;
+    if (!questionId) return res.status(400).json({ error: 'Missing questionId' });
+
+    const { data: q, error: qError } = await supabase
+      .from('questions')
+      .select('id, answer, aliases, type')
+      .eq('id', questionId)
+      .single();
+
+    if (qError || !q) return res.status(404).json({ error: 'Question not found' });
+
+    let correct = false;
+    if (q.type === 'type_in') {
+      correct = fuzzyMatch(userAnswer || '', q.answer, q.aliases);
+    } else {
+      correct = (userAnswer || '').trim().toLowerCase() === q.answer.trim().toLowerCase();
+    }
+
+    res.json({ correct, answer: q.answer });
+  } catch (error) {
+    console.error('Check answer error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
 // ============================================================
 // GROUPS
 // ============================================================
@@ -772,15 +799,6 @@ app.patch('/api/profile', async (req, res) => {
     console.error('Profile update error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
-});
-
-
-// ============================================================
-// SERVE FRONTEND
-// ============================================================
-app.use(express.static(path.join(__dirname, '..', 'public')));
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
 
