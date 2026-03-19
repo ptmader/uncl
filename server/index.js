@@ -6,6 +6,9 @@ import { createClient } from '@supabase/supabase-js';
 dotenv.config({ path: '.env.local' });
 
 const app = express();
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 
 // ── Supabase ───────────────────────────────────────────────────────────────
@@ -769,6 +772,15 @@ app.patch('/api/profile', async (req, res) => {
     console.error('Profile update error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+
+// ============================================================
+// SERVE FRONTEND
+// ============================================================
+app.use(express.static(path.join(__dirname, '..', 'public')));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
 
