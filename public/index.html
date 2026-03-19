@@ -33,7 +33,7 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
   <script>
-    fetch('/app.jsx')
+    fetch('/app.jsx?v=2')
       .then(function(r) { return r.text(); })
       .then(function(jsx) {
         var js = Babel.transform(jsx, { presets: ['react'] }).code;
