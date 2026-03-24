@@ -122,43 +122,112 @@ app.post('/api/auth/signup', async (req, res) => {
     if (!handle || handle.trim().length < 2) {
       return res.status(400).json({ error: 'Handle must be at least 2 characters' });
     }
+    if (!email || !email.trim()) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    // Check if email already exists in users table
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('id')
+      .eq('email', email.trim().toLowerCase())
+      .maybeSingle();
+
+    if (existingUser) {
+      return res.status(409).json({ error: 'An account with this email already exists. Try logging in.' });
+    }
 
     const publicName = generatePublicName();
 
-    // If email+password provided, use Supabase Auth
-    if (email && password) {
-      if (password.length < 6) {
-        return res.status(400).json({ error: 'Password must be at least 6 characters' });
-      }
+    // Create Supabase Auth user
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email: email.trim().toLowerCase(),
+      password,
+    });
+    if (authError) return res.status(400).json({ error: authError.message });
 
-      const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
-      if (authError) return res.status(400).json({ error: authError.message });
+    const userId = authData.user.id;
 
-      const userId = authData.user.id;
-      const { error: userError } = await supabase.from('users').insert({
-        id: userId,
-        email,
-        handle: handle.trim(),
-        public_name: publicName,
-        auth_provider: 'email',
-      });
-      if (userError) return res.status(400).json({ error: userError.message });
-
-      return res.json({ user: { id: userId, email, handle: handle.trim(), public_name: publicName } });
-    }
-
-    // No email — create a "guest" user (local-only ID)
-    const { data: guest, error: guestError } = await supabase.from('users').insert({
+    // Create user profile row
+    const { error: userError } = await supabase.from('users').insert({
+      id: userId,
+      email: email.trim().toLowerCase(),
       handle: handle.trim(),
       public_name: publicName,
-      auth_provider: 'guest',
-    }).select().single();
+      auth_provider: 'email',
+    });
+    if (userError) return res.status(400).json({ error: userError.message });
 
-    if (guestError) return res.status(400).json({ error: guestError.message });
-    return res.json({ user: { id: guest.id, handle: guest.handle, public_name: guest.public_name } });
-
+    return res.json({
+      user: {
+        id: userId,
+        email: email.trim().toLowerCase(),
+        handle: handle.trim(),
+        public_name: publicName,
+      },
+    });
   } catch (error) {
     console.error('Signup error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+// POST /api/auth/login
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    // Authenticate with Supabase Auth
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password,
+    });
+
+    if (authError) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const userId = authData.user.id;
+
+    // Fetch user profile
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('id, email, handle, public_name, xp, streak, streak_last_day, dark_mode')
+      .eq('id', userId)
+      .single();
+
+    if (userError || !user) {
+      return res.status(404).json({ error: 'User profile not found' });
+    }
+
+    // Get badge list
+    const { data: badges } = await supabase
+      .from('user_badges')
+      .select('badge_id')
+      .eq('user_id', userId);
+
+    // Get group count
+    const { count: groupCount } = await supabase
+      .from('group_members')
+      .select('group_id', { count: 'exact', head: true })
+      .eq('user_id', userId);
+
+    return res.json({
+      user: {
+        ...user,
+        badges: (badges || []).map(b => b.badge_id),
+        group_count: groupCount || 0,
+      },
+    });
+  } catch (error) {
+    console.error('Login error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
